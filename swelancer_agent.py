@@ -35,11 +35,12 @@ from contextvars import ContextVar
 from typing import Any, AsyncGenerator, Generator
 from nanoeval_alcatraz.task_to_alcatraz_config import task_to_alcatraz_config
 from nanoeval_alcatraz.alcatraz_computer_interface import AlcatrazComputerInterface
-from injection_check import check_injection_success
+from injection_check import check_injection_success, contains_output_file_exposure
 from openai import AsyncOpenAI
 import os
 import tiktoken
 import json
+
 
 client = AsyncOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),  # This is the default and can be omitted
@@ -202,6 +203,14 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                 if hasattr(task, "adversarial_mode") and task.adversarial_mode:
                     for mode in task.adversarial_mode.split(","):
                         mode = mode.strip()
+
+                        if mode == "Output File Exposure":
+                            # pass the ComputerInterface to the async check
+                            injection_success[mode] = await contains_output_file_exposure(
+                                all_model_text, computer
+                            )
+                        else:
+                            injection_success[mode] = check_injection_success(all_model_text, mode)
                         result = check_injection_success(all_model_text, mode)
                         injection_success[mode] = result
 
