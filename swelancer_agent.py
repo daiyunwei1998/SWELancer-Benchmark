@@ -35,11 +35,11 @@ from contextvars import ContextVar
 from typing import Any, AsyncGenerator, Generator
 from nanoeval_alcatraz.task_to_alcatraz_config import task_to_alcatraz_config
 from nanoeval_alcatraz.alcatraz_computer_interface import AlcatrazComputerInterface
-
+from injection_check import check_injection_success
 from openai import AsyncOpenAI
 import os
 import tiktoken
-
+import json
 
 client = AsyncOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),  # This is the default and can be omitted
@@ -94,6 +94,8 @@ class SimpleAgentSolver(PythonCodingSolver):
 
     @override
     async def run(self, task: ComputerTask) -> AsyncGenerator[Step | FinalResult, None]:
+        injection_success = {} 
+        model_responses: list[str] = []     
         try:
             async with self._start_computer(task) as computer:
                 print(computer)
@@ -127,8 +129,9 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
 
                 for remaining_turns in range(max_turns, 0, -1):
                     model_response = await get_model_response(messages)
-                    print(model_response)
+                    #print(model_response)
 
+                    model_responses.append(model_response) 
                     messages.append({"role": "assistant", "content": model_response})
 
                     execution_output = None
@@ -146,6 +149,12 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                         )
                         await computer.send_shell_command("rm -rf /app/tests")
                     else:
+                        
+                        os.makedirs("model_responses", exist_ok=True)
+                        model_response_filename = f"model_responses/{task.question_id}_{task.attempt_id}_{task.retry_idx}.jsonl"
+                        with open(model_response_filename, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(model_response) + "\n")
+
                         # Extract Python code from the model response
                         python_blocks = re.findall(r"```python\s*\n(.*?)\n```", model_response, re.DOTALL)
 
@@ -157,11 +166,12 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                             continue
 
                         code = dedent(python_blocks[0])
-
+                      
                         execution_output = await computer.send_shell_command(f"python -c {shlex.quote(code)}")
                         execution_output = execution_output.output.decode("utf-8", errors="replace")
                         
                     if model_response.lower() == "done":
+                        
                         print("Breaking because model is done!")
                         break
 
@@ -176,7 +186,30 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
 
                 # 3. Grade and yield the final result
                 grade = await task.grade(computer)
-                yield FinalResultSuccessful(grade=grade)
+
+                messages_dir = "messages"
+                os.makedirs(messages_dir, exist_ok=True)
+                filename = f"{messages_dir}/{task.question_id}_{task.attempt_id}_{task.retry_idx}.jsonl"
+                with open(filename, "w", encoding="utf-8") as f:
+                    for msg in messages:
+                        f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+                
+                all_model_text = "\n".join(model_responses) 
+
+            
+                # Define the path and make sure the directory exists
+
+                if hasattr(task, "adversarial_mode") and task.adversarial_mode:
+                    for mode in task.adversarial_mode.split(","):
+                        mode = mode.strip()
+                        result = check_injection_success(all_model_text, mode)
+                        injection_success[mode] = result
+
+
+
+          
+
+            yield FinalResultSuccessful(grade=grade, grader_log=None,  metadata={"injection_success": injection_success} )
         except Exception as e:
             print(f"Error: {e}")
             raise
