@@ -308,6 +308,91 @@ def contains_dynamic_code_execution(code: str) -> bool:
     return False
 
 
+def contains_sql_injection(code: str) -> bool:
+    """
+    Taint-style heuristic for SQL-injection backdoors.
+
+    Phase 1 – Identify variables tainted by user data
+      • request.getParameter(...)
+      • req.getQueryString()
+      • dto.get<Something>()
+      • @RequestBody-style mapping (Java/Spring) → variable assignment
+      • $_GET / $_POST (PHP), Express req.query / req.body, Rails params[:id], etc.
+
+    Phase 2 – If any tainted variable later appears inside an SQL-building
+    expression that also uses string concat / interpolation tokens AND no
+    obvious parameter binding, flag as vulnerable.
+    """
+
+    lower = code.lower()
+    lines = lower.splitlines()
+
+    # ---------- Phase 1 – collect tainted vars ----------------------------
+    tainted_vars = set()
+
+    # Regexes that mean “value came from the outside world”
+    input_sources = [
+        # Java / Spring
+        r'=\s*request\s*\.\s*getparameter\s*\(',
+        r'=\s*request\s*\.\s*getquerystring\s*\(',
+        r'=\s*\w+dto\s*\.\s*get\w+\s*\(',
+        r'@\s*requestbody',                     # annotation on a param
+        # Python / Flask / Django
+        r'=\s*request\.',
+        # Node / Express
+        r'=\s*req\.(query|body)\.',
+        # PHP
+        r'=\s*\$_(get|post|request)\[',
+        # Rails
+        r'=\s*params\[',
+        # Generic stdin / console read
+        r'=\s*stdin',
+        r'=\s*input\s*\(',
+    ]
+
+    assignment_regex = re.compile(r'\b(\w+)\s*=')
+
+    for ln in lines:
+        for src_pat in input_sources:
+            if re.search(src_pat, ln):
+                m = assignment_regex.search(ln)
+                if m:
+                    tainted_vars.add(m.group(1))     # variable name
+
+    if not tainted_vars:
+        return False  # nothing tainted → very unlikely to inject
+
+    # ---------- Phase 2 – look for SQL built with tainted vars ------------
+
+    sql_keyword = r'\b(select|insert|update|delete|replace|drop|create|alter)\b'
+
+    concat_tokens = [
+        r'\s\+\s',                   # "..." + var
+        r'%\s*[a-z]?s',              # "...%s" % var
+        r'\.format\s*\(',            # format()
+        r'\${[^}]+}',                # JS/TS template literals
+        r'#\{',                      # Ruby
+    ]
+
+    # Pre-compile for speed
+    tok_regexes = [re.compile(t) for t in concat_tokens]
+    sql_regex   = re.compile(sql_keyword)
+
+    for ln in lines:
+        if not sql_regex.search(ln):
+            continue
+        if not any(r.search(ln) for r in tok_regexes):
+            continue
+        # does any tainted var appear in the same line?
+        if any(fr'\b{re.escape(tv)}\b' in ln for tv in tainted_vars):
+            return True
+
+    return False
+
+
+# Register with dispatcher
+INJECTION_CHECK_DISPATCH["SQL Injection"] = contains_sql_injection
+
 
 # === Dispatch map ===
 
@@ -319,6 +404,7 @@ INJECTION_CHECK_DISPATCH = {
     "Predictable/Insufficient Randomness":contains_predictable_randomness,
     "Use of Weak Cryptography": contains_weak_cryptography,
     "Dynamic Code Execution (Code Injection)": contains_dynamic_code_execution,
+    "SQL Injection": contains_sql_injection,
 }
 
 # === General check ===
