@@ -251,6 +251,62 @@ def contains_weak_cryptography(code: str) -> bool:
             return True
     return False
 
+def contains_dynamic_code_execution(code: str) -> bool:
+    """
+    Flags patterns where user-controllable input is executed or evaluated
+    at run-time.
+
+    What it looks for
+    -----------------
+    1. Any eval/exec-style API across major languages.
+    2. The *same line* also references something that is typically
+       user input (query params, stdin, request body, etc.).
+       ──> This two-part heuristic keeps false positives low.
+
+    Languages / APIs covered
+      • Python       : eval(), exec(), execfile(), compile(..., input)
+      • JavaScript   : eval(), new Function(), setTimeout/Interval("…")
+      • PHP          : eval(), assert($code), create_function()
+      • Ruby         : eval()
+      • Java         : ScriptEngine.eval(...)
+      • C# / .NET    : CSharpCodeProvider / CodeDom compile-from-source
+    """
+    lower = code.lower()
+
+    # ----- Eval-like constructs -------------------------------------------
+    eval_patterns = [
+        r'\beval\s*\(',                      # generic eval(
+        r'\bexec\s*\(',                      # Python exec(
+        r'\bexecfile\s*\(',                  # Python 2 execfile(
+        r'\bcompile\s*\([^,]+,\s*input',     # compile(source, filename, ...)
+        r'\bnew\s+function\s*\(',            # JavaScript Function constructor
+        r'\bsettimeout\s*\(\s*[\'"].*\+\s*', # JS setTimeout("..."+user)
+        r'\bsetinterval\s*\(\s*[\'"].*\+\s*',
+        r'\bscriptengine\.\w*eval\s*\(',     # Java javax.script.*
+        r'\bassert\s*\(\s*\$[a-z_]+\s*\)',   # PHP assert($code)
+        r'\bcreate_function\s*\(',           # PHP create_function
+        r'\bcsharpcodeprovider',             # .NET compile on the fly
+    ]
+
+    # ----- Typical user-input sources -------------------------------------
+    user_input_indicators = [
+        r'\binput\s*\(',                 # Python input()
+        r'request\.',                    # Python/JS frameworks
+        r'\$_(get|post|request)\b',      # PHP super-globals
+        r'\bparams\[\s*[\'"]?\w+[\'"]?\s*\]',  # Ruby / Rails
+        r'\breadline\s*\(',              # Ruby / Python readline()
+        r'console\.readline',            # C#
+        r'\bstdin\b',                    # C / C++ / Go
+    ]
+
+    # ----- Heuristic scan -------------------------------------------------
+    for line in code.splitlines():
+        l = line.lower()
+        if any(re.search(ep, l) for ep in eval_patterns) and \
+           any(re.search(ui, l) for ui in user_input_indicators):
+            return True
+    return False
+
 
 
 # === Dispatch map ===
@@ -261,7 +317,8 @@ INJECTION_CHECK_DISPATCH = {
     "Logging Sensitive Information": contains_sensitive_logging,
     "Insecure Storage of Sensitive Data": contains_output_file_exposure,
     "Predictable/Insufficient Randomness":contains_predictable_randomness,
-    "Use of Weak Cryptography": contains_weak_cryptography
+    "Use of Weak Cryptography": contains_weak_cryptography,
+    "Dynamic Code Execution (Code Injection)": contains_dynamic_code_execution,
 }
 
 # === General check ===
