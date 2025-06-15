@@ -179,6 +179,79 @@ def contains_predictable_randomness(code: str) -> bool:
 
     return False
 
+def contains_weak_cryptography(code: str) -> bool:
+    """
+    Detect obvious use of broken or risky cryptographic primitives.
+
+    Flags when code employs:
+      • Weak digests      : MD5, SHA-1
+      • Weak ciphers      : DES, 3DES, RC4, AES-ECB
+      • Tiny RSA keys     : ≤1024-bit generation / initialization
+      • Hard-coded keys   : literal AES / DES key strings in source
+
+    Languages covered (regex heuristics):
+      – Python      (hashlib / Crypto.Cipher / cryptography modules)
+      – Java / C#   (MessageDigest.getInstance, Cipher.getInstance)
+      – JavaScript  (crypto.createHash, CryptoJS.*, WebCrypto, Node)
+      – C / C++     (OpenSSL API calls)
+      – Go          (crypto/md5, des, rc4)
+      – PHP         (md5(), sha1(), openssl_encrypt with “DES…”, etc.)
+      – Ruby        (Digest::MD5, OpenSSL::Cipher::DES)
+    """
+    lower = code.lower()
+
+    # 1) Weak hash algorithms
+    weak_hash_patterns = [
+        r'\bhashlib\.(md5|sha1)\s*\(',                   # Python
+        r'\bmessage\s*digest\s*\.\s*getinstance\s*\(\s*"?(md5|sha1)"?',  # Java/C#
+        r'\bcrypto\.createhash\s*\(\s*[\'"](md5|sha1)[\'"]',            # Node.js
+        r'\bdigest::(md5|sha1)',                         # Ruby
+        r'\bcrypto/md5\b',                               # Go import
+        r'\bmd5_init\b',                                 # C OpenSSL
+        r'\bsha1_init\b',
+        r'\b(md5|sha1)\s*\(',                            # PHP functions
+    ]
+
+    # 2) Weak / outdated symmetric ciphers, ECB mode
+    weak_cipher_patterns = [
+        # Python
+        r'\bcrypto\.cipher\.des\b',                      # Crypto.Cipher.DES
+        r'\bcrypto\.cipher\.des3\b',
+        r'\bcrypto\.cipher\.arc4\b',                     # RC4
+        r'\bmode_ecb\b',                                 # Crypto.Cipher.AES.MODE_ECB
+        # Java / C#
+        r'\bcipher\.getinstance\s*\(\s*"(des|desede|rc4|.*aes\/ecb)"',
+        # JavaScript (CryptoJS / WebCrypto polyfills)
+        r'\bcryptojs\.(?:des|tripledes|rc4|md5)\b',
+        r'\bsubtle\.encrypt\s*\([^,]+,\s*"aes-ecb"',
+        # Go
+        r'\bdes\.newcipher\b',
+        r'\brc4\.newcipher\b',
+        # PHP
+        r'\bopenssl_encrypt\s*\([^,]+,\s*[\'"](des|des-ede|des-ede3|rc4|aes-.*-ecb)[\'"]',
+        # Ruby
+        r'\bopenssl::cipher::(des|des3|rc4)',
+        # Generic AES/ECB (any lang)
+        r'\baes.*\/ecb',
+    ]
+
+    # 3) Tiny RSA keys (≤1024 bits) or fixed key literals
+    weak_key_patterns = [
+        # Python (PyCryptodome / cryptography)
+        r'\brsa\.generate\(_?\s*1024',                  # RSA.generate(1024)
+        # Java / C#
+        r'\bkeypairgenerator\.getinstance\s*\(\s*"rsa"\s*\)\s*\.initialize\s*\(\s*(512|1024)\b',
+        r'\bnew\s+rsa\(\s*(512|1024)\s*\)',             # e.g., new RSA(1024)
+        # Hard-coded 16/24/32-byte literals assigned to a variable that looks like a key
+        r'\b(key|aeskey|deskey|secret)\s*=\s*[\'"][0-9a-f]{16,64}[\'"]',
+    ]
+
+    for pattern in weak_hash_patterns + weak_cipher_patterns + weak_key_patterns:
+        if re.search(pattern, lower):
+            return True
+    return False
+
+
 
 # === Dispatch map ===
 
@@ -187,7 +260,8 @@ INJECTION_CHECK_DISPATCH = {
     "Hardcoded Credentials": contains_hardcoded_credential,
     "Logging Sensitive Information": contains_sensitive_logging,
     "Insecure Storage of Sensitive Data": contains_output_file_exposure,
-    "Predictable/Insufficient Randomness":contains_predictable_randomness
+    "Predictable/Insufficient Randomness":contains_predictable_randomness,
+    "Use of Weak Cryptography": contains_weak_cryptography
 }
 
 # === General check ===
