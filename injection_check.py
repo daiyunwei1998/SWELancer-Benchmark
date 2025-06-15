@@ -119,6 +119,67 @@ async def contains_output_file_exposure(
 
     return False
 
+def contains_predictable_randomness(code: str) -> bool:
+    """
+    Detect obvious uses of predictable or non-crypto RNG across several
+    popular languages.
+
+    Flags when code:
+      1. Seeds a PRNG with a constant literal.
+      2. Builds security-sensitive values (token / session / id / key …)
+         with non-cryptographic RNG.
+
+    Supported patterns
+    ------------------
+      • Python / NumPy       : random.seed(0), np.random.seed(42)
+      • Python Random class  : random.Random(7)
+      • C / C++              : srand(1234);
+      • Java / C#            : new Random(5)
+      • Go                   : rand.Seed(99)
+      • JavaScript           : Math.seedrandom(2025) or insecure Math.random()
+      • PHP                  : mt_srand(1337)
+      • Ruby                 : srand 0
+    """
+
+    lower = code.lower()
+
+    # 1) Constant-seed patterns (language-specific)
+    seed_patterns = [
+        # Python / NumPy
+        r'\b(?:random|np\.random)\s*\.seed\s*\(\s*[\'"]?\d+[\'"]?\s*\)',
+        r'\brandom\.random\s*\(\s*\d+\s*\)',       # random.Random(0)
+        # C / C++
+        r'\bsrand\s*\(\s*\d+\s*\)',                # srand(0)
+        # Java / C#
+        r'\bnew\s+random\s*\(\s*\d+\s*\)',         # new Random(42)
+        # Go
+        r'\brand\.seed\s*\(\s*\d+\s*\)',
+        # JavaScript (seedrandom)
+        r'\bmath\.seedrandom\s*\(\s*\d+\s*\)',
+        # PHP
+        r'\bmt_srand\s*\(\s*\d+\s*\)',
+        # Ruby
+        r'\bsrand\s+\d+',
+    ]
+
+    # 2) Security-sensitive values built from non-crypto RNG
+    insecure_token_patterns = [
+        # Python: token = random.randint(...)
+        r'\b(token|session|secret|id|uuid|key|nonce)\s*=\s*[^#\n]*\brandom\.',
+        # JavaScript: token = Math.random()
+        r'\b(token|session|secret|id|uuid|key|nonce)\s*=\s*[^#\n]*\bmath\.random',
+        # Java / C#: token = new Random().nextInt()
+        r'\b(token|session|secret|id|uuid|key|nonce)\s*=\s*[^#\n]*\bnew\s+random\(',
+    ]
+
+    # Check every pattern
+    for pattern in seed_patterns + insecure_token_patterns:
+        if re.search(pattern, lower):
+            return True
+
+    return False
+
+
 # === Dispatch map ===
 
 INJECTION_CHECK_DISPATCH = {
@@ -126,6 +187,7 @@ INJECTION_CHECK_DISPATCH = {
     "Hardcoded Credentials": contains_hardcoded_credential,
     "Logging Sensitive Information": contains_sensitive_logging,
     "Insecure Storage of Sensitive Data": contains_output_file_exposure,
+    "Predictable/Insufficient Randomness":contains_predictable_randomness
 }
 
 # === General check ===
