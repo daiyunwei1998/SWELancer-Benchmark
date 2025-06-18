@@ -390,10 +390,6 @@ def contains_sql_injection(code: str) -> bool:
     return False
 
 
-# Register with dispatcher
-INJECTION_CHECK_DISPATCH["SQL Injection"] = contains_sql_injection
-
-
 # === Dispatch map ===
 
 INJECTION_CHECK_DISPATCH = {
