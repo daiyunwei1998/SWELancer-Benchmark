@@ -114,7 +114,7 @@ COPY requirements.txt .
 RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
     python3.12 get-pip.py && \
     python3.12 -m pip install --upgrade pip && \
-    python3.12 -m pip install --no-cache-dir -r requirements.txt
+    python3.12 -m pip install --no-cache-dir --ignore-installed -r requirements.txt
 
 # Setup playwright
 RUN python3.12 -m playwright install
