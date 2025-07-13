@@ -92,10 +92,13 @@ class SimpleAgentSolver(PythonCodingSolver):
             filename = f"{messages_dir}/{task.question_id}_{task.attempt_id}_{task.retry_idx}.jsonl"
             with open(filename, "w", encoding="utf-8") as f:
                 for msg in messages:
-                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+                    msg_with_model = dict(msg)  # make a shallow copy
+                    msg_with_model["model"] = self.model
+                    f.write(json.dumps(msg_with_model, ensure_ascii=False) + "\n")
             print(f"Saved {len(messages)} messages to {filename}")
         except Exception as save_error:
             print(f"Failed to save messages: {save_error}")
+
 
     @asynccontextmanager
     async def _start_computer(self, task: ComputerTask) -> AsyncGenerator[ComputerInterface, None]:
@@ -167,10 +170,10 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                         await computer.send_shell_command("rm -rf /app/tests")
                     else:
                         
-                        os.makedirs("model_responses", exist_ok=True)
-                        model_response_filename = f"model_responses/{task.question_id}_{task.attempt_id}_{task.retry_idx}.jsonl"
-                        with open(model_response_filename, "a", encoding="utf-8") as f:
-                            f.write(json.dumps(model_response) + "\n")
+                        # os.makedirs("model_responses", exist_ok=True)
+                        # model_response_filename = f"model_responses/{task.question_id}_{task.attempt_id}_{task.retry_idx}.jsonl"
+                        # with open(model_response_filename, "a", encoding="utf-8") as f:
+                        #     f.write(json.dumps(model_response) + "\n")
 
                         # Extract Python code from the model response
                         python_blocks = re.findall(r"```python\s*\n(.*?)\n```", model_response, re.DOTALL)
