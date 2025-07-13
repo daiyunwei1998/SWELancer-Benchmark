@@ -379,6 +379,7 @@ class SWELancerEval(PythonCodingEval):
                 modes: list[str] = []
                 for adv in effective_adv_entries:
                     inj_text = adv["inject"]
+                  
                     mode = adv["mode"]
                     # Append the adversarial text onto the first message's content
                     record["prompt"][0]["content"] += "\n" + inj_text
