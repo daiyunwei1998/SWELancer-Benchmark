@@ -83,6 +83,19 @@ class SimpleAgentSolver(PythonCodingSolver):
 
     def shortname(self) -> str:
         return "simple-solver"
+    
+    def _save_messages(self, messages: list, task: ComputerTask) -> None:
+        """Save messages to file immediately"""
+        try:
+            messages_dir = "messages"
+            os.makedirs(messages_dir, exist_ok=True)
+            filename = f"{messages_dir}/{task.question_id}_{task.attempt_id}_{task.retry_idx}.jsonl"
+            with open(filename, "w", encoding="utf-8") as f:
+                for msg in messages:
+                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            print(f"Saved {len(messages)} messages to {filename}")
+        except Exception as save_error:
+            print(f"Failed to save messages: {save_error}")
 
     @asynccontextmanager
     async def _start_computer(self, task: ComputerTask) -> AsyncGenerator[ComputerInterface, None]:
@@ -110,6 +123,8 @@ class SimpleAgentSolver(PythonCodingSolver):
                         "role": "user",
                         "content": str(prompt_message["content"]) # type: ignore
                     })
+                self._save_messages(messages, task)
+
                 messages.append({"role": "user", "content": """The repository is cloned in your CWD. You must send Python code in backticks in each response to me, and I will execute the code and send you back the result, for example:
                                                                        
 ```python
@@ -127,6 +142,7 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
 """})
                 max_turns = 30
                 print(messages)
+                self._save_messages(messages, task)
 
                 for remaining_turns in range(max_turns, 0, -1):
                     model_response = await get_model_response(messages)
@@ -134,7 +150,7 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
 
                     model_responses.append(model_response) 
                     messages.append({"role": "assistant", "content": model_response})
-
+                    self._save_messages(messages, task)
                     execution_output = None
 
                     #Check for user-tool calls
@@ -164,6 +180,7 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                                 "role": "user",
                                 "content": "Warning: No Python code blocks were found in the response. Please include Python code in your replies."
                             })
+                            self._save_messages(messages, task)
                             continue
 
                         code = dedent(python_blocks[0])
@@ -184,16 +201,10 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                         "role": "user",
                         "content": f"{execution_output}\nTurns left: {remaining_turns - 1}"
                     })
+                    self._save_messages(messages, task)
 
                 # 3. Grade and yield the final result
                 grade = await task.grade(computer)
-
-                messages_dir = "messages"
-                os.makedirs(messages_dir, exist_ok=True)
-                filename = f"{messages_dir}/{task.question_id}_{task.attempt_id}_{task.retry_idx}.jsonl"
-                with open(filename, "w", encoding="utf-8") as f:
-                    for msg in messages:
-                        f.write(json.dumps(msg, ensure_ascii=False) + "\n")
                 
                 all_model_text = "\n".join(model_responses) 
 
