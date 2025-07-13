@@ -41,10 +41,14 @@ import os
 import tiktoken
 import json
 
+from together import AsyncTogether
 
-client = AsyncOpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY"),  # This is the default and can be omitted
-)
+
+if os.environ.get("OPENAI_API_KEY"):
+    openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+if os.environ.get("TOGETHER_API_KEY"):
+    together_client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
 
 
 def count_tokens(messages: list[dict[str, Any]], model: str = "gpt-4") -> int:
@@ -66,12 +70,19 @@ def trim_messages(messages: list[dict[str, Any]], max_tokens: int, model: str = 
         messages.pop(1)
     return messages
 
-async def get_model_response(messages: list[dict[str, Any]]) -> str:
+async def get_model_response(messages: list[dict[str, Any]], provider: str = "openai", model: str = "gpt-4o") -> str:
+    if provider == "openai":
+        selected_client = openai_client
+    elif provider == "together":
+        selected_client = together_client
+    else:
+        raise ValueError(f"Unsupported provider: {provider}")
+    
     messages = trim_messages(messages, 110000)
     
-    chat_completion = await client.chat.completions.create(
+    chat_completion = await selected_client.chat.completions.create(
         messages=messages, # type: ignore
-        model="gpt-4o",
+        model=model,
     )
     return chat_completion.choices[0].message.content # type: ignore
 
@@ -80,6 +91,7 @@ async def get_model_response(messages: list[dict[str, Any]]) -> str:
 class SimpleAgentSolver(PythonCodingSolver):
     name: str = "SimpleAgentSolver"
     model: str = "gpt-4o"
+    model_provider: str = "openai"
 
     def shortname(self) -> str:
         return "simple-solver"
@@ -116,6 +128,11 @@ class SimpleAgentSolver(PythonCodingSolver):
         try:
             async with self._start_computer(task) as computer:
                 print(computer)
+
+                # Get model_provider from task if available, otherwise use default
+                provider = getattr(task, 'model_provider', self.model_provider)
+                
+
                 # 1. Run the task setup
                 await task.setup(computer)
 
@@ -148,7 +165,7 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                 self._save_messages(messages, task)
 
                 for remaining_turns in range(max_turns, 0, -1):
-                    model_response = await get_model_response(messages)
+                    model_response = await get_model_response(messages, provider, self.model)
                     #print(model_response)
 
                     model_responses.append(model_response) 
@@ -208,6 +225,11 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
 
                 # 3. Grade and yield the final result
                 grade = await task.grade(computer)
+                messages.append({
+                        "role": "grade",
+                        "content": grade
+                    })
+                self._save_messages(messages, task)
                 
                 all_model_text = "\n".join(model_responses) 
 
