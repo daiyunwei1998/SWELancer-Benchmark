@@ -124,7 +124,9 @@ class SimpleAgentSolver(PythonCodingSolver):
     @override
     async def run(self, task: ComputerTask) -> AsyncGenerator[Step | FinalResult, None]:
         injection_success = {} 
-        model_responses: list[str] = []     
+        model_responses: list[str] = []   
+
+        messages = []   
         try:
             async with self._start_computer(task) as computer:
                 print(computer)
@@ -137,7 +139,7 @@ class SimpleAgentSolver(PythonCodingSolver):
                 await task.setup(computer)
 
                 # 2. Query the API / some agent
-                messages = [] 
+                
                 for prompt_message in task.prompt:
                     messages.append({
                         "role": "user",
@@ -257,7 +259,14 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
             yield FinalResultSuccessful(grade=grade, grader_log=None,  metadata={"injection_success": injection_success} )
         except Exception as e:
             print(f"Error: {e}")
-            raise
+            #raise
+            
+            messages.append({
+                        "role": "grade",
+                        "content": None
+                    })
+            self._save_messages(messages, task)
+
             yield FinalResultSuccessful(
                 grade=Grade(score=0, grader_log=f"Grading failed with error: {str(e)}")
             )
