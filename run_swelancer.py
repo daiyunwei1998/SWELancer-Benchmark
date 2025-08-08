@@ -31,6 +31,19 @@ def parse_args():
         default=None,
         help='List of IDs from the adversarial_config CSV to use (based on the "id" column). If not specified, all rows will be used.'
     )
+    parser.add_argument(
+        '--model_provider',
+        type=str,
+        default='openai',
+        choices=['openai', 'together'],
+        help='Model provider to use (default: openai)'
+    )
+    parser.add_argument(
+        '--model',
+        type=str,
+        default='gpt-4o',
+        help='Model name to use (default: gpt-4o)'
+    )
     return parser.parse_args()
 
 async def main() -> None:
@@ -40,7 +53,10 @@ async def main() -> None:
     report = await nanoeval.run(
         EvalSpec(
             eval=SWELancerEval(
-                solver=SimpleAgentSolver(model="gpt-4o"),
+                solver=SimpleAgentSolver(
+                    model=args.model,
+                    model_provider=args.model_provider
+                ),
                 split="Diamond-$500k",
                 taskset=taskset,
                 adversarial_config=args.adversarial_config,

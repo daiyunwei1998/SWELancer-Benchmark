@@ -6,6 +6,7 @@ dependencies = [
     "nanoeval",
     "nanoeval_alcatraz",
     "python-dotenv>=1.0.1",
+    "together",
     "tiktoken>=0.9.0",
     "pyright",
 ]
