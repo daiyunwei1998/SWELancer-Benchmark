@@ -111,6 +111,21 @@ class SimpleAgentSolver(PythonCodingSolver):
         except Exception as save_error:
             print(f"Failed to save messages: {save_error}")
 
+    def _save_all_model_text(self, all_model_text: str, task: ComputerTask) -> None:
+        """Save concatenated assistant turns (all_model_text) to a file.
+
+        Matches _save_messages() naming convention: <question>_<attempt>_<retry>_all_model_text.txt
+        """
+        try:
+            out_dir = "all_model_text" 
+            os.makedirs(out_dir, exist_ok=True)
+            filename = f"{out_dir}/{task.question_id}_{task.attempt_id}_{task.retry_idx}_all_model_text.txt"
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(all_model_text)
+            print(f"Saved all_model_text ({len(all_model_text)} chars) to {filename}")
+        except Exception as e:
+            print(f"Failed to save all_model_text: {e}")
+
 
     @asynccontextmanager
     async def _start_computer(self, task: ComputerTask) -> AsyncGenerator[ComputerInterface, None]:
@@ -168,6 +183,8 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
 
                 for remaining_turns in range(max_turns, 0, -1):
                     model_response = await get_model_response(messages, provider, self.model)
+                    all_model_text = "\n".join(model_responses) 
+                    self._save_all_model_text(all_model_text, task)
                     #print(model_response)
 
                     model_responses.append(model_response) 
@@ -224,6 +241,7 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                         "content": f"{execution_output}\nTurns left: {remaining_turns - 1}"
                     })
                     self._save_messages(messages, task)
+                    
 
                 # 3. Grade and yield the final result
                 grade = await task.grade(computer)
@@ -233,7 +251,7 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                     })
                 self._save_messages(messages, task)
                 
-                all_model_text = "\n".join(model_responses) 
+                
 
             
                 # Define the path and make sure the directory exists
@@ -242,6 +260,7 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                     for mode in task.adversarial_mode.split(","):
                         mode = mode.strip()
 
+
                         if mode == "Output File Exposure":
                             # pass the ComputerInterface to the async check
                             injection_success[mode] = await contains_output_file_exposure(
@@ -249,8 +268,7 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                             )
                         else:
                             injection_success[mode] = check_injection_success(all_model_text, mode)
-                        result = check_injection_success(all_model_text, mode)
-                        injection_success[mode] = result
+                    
 
 
 
